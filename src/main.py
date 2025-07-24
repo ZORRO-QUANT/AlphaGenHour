@@ -7,7 +7,7 @@ from pathlib import Path
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
 import logging
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, Dict
 
 import pandas as pd
 import torch
@@ -26,7 +26,7 @@ from utils.constants import *
 warnings.filterwarnings("ignore")
 
 path_general = Path(load_config("path.yaml")["general"])
-
+save_path = Path(load_config("path.yaml")["save_path"])
 # Create logs directory if it doesn't exist
 PROJECT_ROOT = Path(__file__).parents[1]  # Go up one level from src to project root
 logs_dir = PROJECT_ROOT / "logs"
@@ -52,7 +52,7 @@ def save_factors(
     # todo: modify this path to change the folder of alphas
 
     path_factor = (
-        path_general
+        save_path
         / data.data_sources.kline.exchange.name
         / data.data_sources.kline.universe.name
         / "Alphas"
@@ -90,6 +90,7 @@ def run_single_experiment(
     seed: int = SEED,
     pool_capacity: int = POOL_CAPACITY,
     steps: int = STEPS,
+    last_policy: Union[Dict,None] = None,
 ):
 
     reseed_everything(seed)
@@ -104,7 +105,7 @@ def run_single_experiment(
 
     name_prefix = f"{group.name}_{pool_capacity}_{seed}"
     save_folder = (
-        path_general
+        save_path
         / data_sources.kline.exchange.name
         / data_sources.kline.universe.name
         / "Alphas"
@@ -186,7 +187,7 @@ def run_single_experiment(
         test_calculator=calculator_test,
         policy="LSTM",
     )
-
+    
     model = MaskablePPO(
         "MlpPolicy",
         env,
@@ -205,6 +206,8 @@ def run_single_experiment(
         device=device,
         verbose=1,
     )
+    if last_policy is not None:
+            model.policy.load_state_dict(last_policy)
 
     model.learn(
         total_timesteps=steps,
@@ -220,6 +223,8 @@ def run_single_experiment(
         batch_size=model.batch_size,
         policy_model="LSTM",
     )
+    current_policy = model.policy.state_dict()
+    return current_policy
 
 
 def main(
@@ -239,6 +244,8 @@ def main(
     """
 
     # make the span according to the start / end / batch
+    last_policy=None
+
     for batch_start in pd.date_range(
         start=start, end=end, freq=batch, inclusive="left"
     ):
@@ -257,8 +264,9 @@ def main(
             test_start=batch_start,
             test_end=batch_end,
         )
+        
 
-        run_single_experiment(
+        current_policy = run_single_experiment(
             data_sources=data_sources,
             alphas=alphas,
             spans=batch_spans,
@@ -266,7 +274,9 @@ def main(
             group=group,
             pool_capacity=pool_capacity,
             steps=steps,
+            last_policy = last_policy
         )
+        last_policy = current_policy
 
 
 if __name__ == "__main__":
