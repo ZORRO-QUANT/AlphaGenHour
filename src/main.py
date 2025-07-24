@@ -186,6 +186,9 @@ def run_single_experiment(
         valid_calculator=calculator_valid,
         test_calculator=calculator_test,
         policy="LSTM",
+        data_sources=data_sources,
+        target=target,
+        alphas=alphas
     )
     
     model = MaskablePPO(
